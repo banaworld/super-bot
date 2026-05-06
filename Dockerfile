@@ -1,57 +1,49 @@
+# Stage 1: Build the Go WhatsApp Bot
+FROM golang:1.22-alpine AS bot-builder
+RUN apk add --no-cache gcc musl-dev sqlite-dev
+WORKDIR /app/bot
+COPY bot/go.mod bot/go.sum ./
+RUN go mod download
+COPY bot/ .
+# Build the bot binary
+RUN go build -o banabot main.go
+
+# Stage 2: Final Production Image (PHP 8.4 + Go + Nginx)
 FROM php:8.4-fpm-alpine
 
-# 1. Install System Dependencies
+# Install system dependencies
 RUN apk add --no-cache \
     nginx \
     supervisor \
-    go \
-    git \
-    unzip \
-    libzip-dev \
     postgresql-dev \
-    sqlite-dev \
-    oniguruma-dev \
-    libxml2-dev \
-    linux-headers
+    libpq \
+    sqlite-libs \
+    icu-dev \
+    libzip-dev \
+    zip \
+    unzip
 
-# 2. Install PHP Extensions for Laravel & Postgres
-RUN docker-php-ext-install \
-    pdo \
-    pdo_pgsql \
-    pdo_sqlite \
-    bcmath \
-    mbstring \
-    xml \
-    ctype \
-    fileinfo
+# Install PHP extensions for Laravel and Supabase
+RUN docker-php-ext-install pdo pdo_pgsql pgsql intl zip
 
-# 3. Get Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# 4. Set up Project Directory
+# Set working directory
 WORKDIR /app
-COPY . .
 
-# 5. Build the Go Bot
-WORKDIR /app/bot
-# Ensure the session data folder exists for WhatsApp
-RUN mkdir -p /app/bot/data
-RUN go mod tidy && go build -o banabot main.go
-
-# 6. Set up Laravel
-WORKDIR /app/laravel
-RUN composer install --no-dev --no-scripts --optimize-autoloader
-RUN cp .env.example .env
-
-# Permissions for Laravel (Required for Hugging Face)
+# Copy Laravel files
+COPY laravel/ /app/laravel
 RUN chown -R www-data:www-data /app/laravel/storage /app/laravel/bootstrap/cache
-RUN chmod -R 775 /app/laravel/storage /app/laravel/bootstrap/cache
 
-# 7. Web Server & Process Configuration
-WORKDIR /app
-COPY ./nginx.conf /etc/nginx/http.d/default.conf
-COPY ./supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Copy the Go Bot binary from Stage 1
+COPY --from=bot-builder /app/bot/banabot /app/bot/banabot
+# Create a folder for the WhatsApp session database
+RUN mkdir -p /app/bot/data && chmod -R 777 /app/bot/data
 
-# 8. Final Port & Start
+# Copy Configuration Files
+COPY nginx.conf /etc/nginx/http.d/default.conf
+COPY supervisord.conf /etc/supervisord.conf
+
+# Expose the port Hugging Face expects (7860)
 EXPOSE 7860
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
+# Start Supervisord to manage both processes
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

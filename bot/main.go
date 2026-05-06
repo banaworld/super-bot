@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,11 +21,20 @@ import (
 )
 
 func main() {
-	// 1. Get Supabase connection string from Hugging Face Secrets
+	// 1. Get Supabase connection string from environment
 	connStr := os.Getenv("SUPABASE_DB_URL")
 	if connStr == "" {
-		fmt.Println("❌ Critical Error: SUPABASE_DB_URL secret is not set in Hugging Face.")
+		fmt.Println("❌ Critical Error: SUPABASE_DB_URL secret is not set.")
 		return
+	}
+
+	// SSL Fix for Supabase direct connections
+	if !strings.Contains(connStr, "sslmode=") {
+		if strings.Contains(connStr, "?") {
+			connStr += "&sslmode=require"
+		} else {
+			connStr += "?sslmode=require"
+		}
 	}
 
 	// 2. Connect to Supabase
@@ -35,38 +45,31 @@ func main() {
 	}
 	defer db.Close()
 
-	// Verify connection
 	if err := db.Ping(); err != nil {
 		fmt.Printf("❌ Cannot reach Supabase: %v\n", err)
 		return
 	}
 	fmt.Println("✅ Successfully connected to Supabase.")
 
-	// 3. Start the Web Scraper in the background
+	// 3. Start components
 	go startScraper(db)
-
-	// 4. Start the WhatsApp Bot (This keeps the main thread alive)
 	startWhatsApp(db)
 }
 
-// --- DATABASE HELPER ---
 func saveToSupabase(db *sql.DB, source, content string) {
-	// Supabase/Postgres uses $1, $2 placeholders instead of ?
+	// Updated query for your property leads logic
 	query := `INSERT INTO scraped_data (name, url, created_at, updated_at) 
               VALUES ($1, $2, NOW(), NOW())`
-	
 	_, err := db.Exec(query, source, content)
 	if err != nil {
 		fmt.Printf("❌ Supabase Save Error: %v\n", err)
 	} else {
-		fmt.Printf("🚀 Saved to Cloud: [%s] %s\n", source, content)
+		fmt.Printf("🚀 Saved to Cloud: [%s]\n", source)
 	}
 }
 
-// --- WEB SCRAPER COMPONENT ---
 func startScraper(db *sql.DB) {
 	c := colly.NewCollector(colly.Async(true))
-
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		name := e.Text
 		link := e.Request.AbsoluteURL(e.Attr("href"))
@@ -76,18 +79,15 @@ func startScraper(db *sql.DB) {
 	})
 
 	for {
-		fmt.Println("🌐 [Scraper] Starting new crawl cycle...")
-		// You can change this URL to any site you want to monitor
-		c.Visit("https://example.com") 
+		fmt.Println("🌐 [Scraper] Starting crawl...")
+		c.Visit("https://example.com") // Replace with your property search URLs
 		c.Wait()
 		time.Sleep(30 * time.Minute)
 	}
 }
 
-// --- WHATSAPP BOT COMPONENT ---
 func startWhatsApp(db *sql.DB) {
-	// We use a local SQLite file JUST to store the WhatsApp login session
-	// This prevents having to scan the QR code every time the container restarts
+	// Session storage for Hugging Face persistence
 	sessionPath := "file:/app/bot/data/wa_session.db?_foreign_keys=on"
 	container, err := sqlstore.New("sqlite3", sessionPath, waLog.Noop)
 	if err != nil {
@@ -101,7 +101,6 @@ func startWhatsApp(db *sql.DB) {
 
 	client := whatsmeow.NewClient(deviceStore, waLog.Stdout("Client", "WARN", true))
 
-	// Handle incoming messages
 	client.AddEventHandler(func(evt interface{}) {
 		if v, ok := evt.(*events.Message); ok {
 			msgText := v.Message.GetConversation()
@@ -111,13 +110,12 @@ func startWhatsApp(db *sql.DB) {
 			sender := v.Info.Sender.ToNonAD().String()
 
 			if msgText != "" {
-				fmt.Printf("📩 [WhatsApp] Message from %s\n", sender)
+				fmt.Printf("📩 [WhatsApp] Lead from %s\n", sender)
 				saveToSupabase(db, "WA: "+sender, msgText)
 			}
 		}
 	})
 
-	// Login Logic
 	if client.Store.ID == nil {
 		qrChan, _ := client.GetQRChannel(context.Background())
 		err = client.Connect()
@@ -126,7 +124,7 @@ func startWhatsApp(db *sql.DB) {
 		}
 		for evt := range qrChan {
 			if evt.Event == "code" {
-				fmt.Println("\n📸 [WhatsApp] SCAN THIS QR CODE IN YOUR LOGS:")
+				fmt.Println("\n📸 [WhatsApp] SCAN QR IN LOGS:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 			}
 		}
@@ -135,10 +133,9 @@ func startWhatsApp(db *sql.DB) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("✅ [WhatsApp] Connected and listening...")
+		fmt.Println("✅ [WhatsApp] Connected...")
 	}
 
-	// Graceful shutdown handling for Supervisor
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
