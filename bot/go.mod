@@ -7,7 +7,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/mdp/qrterminal/v3 v3.2.1
-	go.mau.fi/whatsmeow v0.0.0-20260506100936-a763037b215a
+	go.mau.fi/whatsmeow v0.0.0-20260506122147-6a7198d94d26
 )
 
 require (
