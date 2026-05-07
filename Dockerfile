@@ -1,5 +1,5 @@
 # Stage 1: Build the Go WhatsApp Bot
-FROM golang:1.22-alpine AS bot-builder
+FROM golang:1.24-alpine AS bot-builder
 
 # Install git, gcc, and necessary build tools
 RUN apk add --no-cache git gcc musl-dev sqlite-dev
