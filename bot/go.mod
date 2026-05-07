@@ -1,6 +1,6 @@
 module github.com/banaworld/super-bot
 
-go 1.26.2
+go 1.24
 
 require (
 	github.com/gocolly/colly/v2 v2.3.0
