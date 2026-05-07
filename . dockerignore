@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Laravel / PHP
+vendor/
+node_modules/
+npm-debug.log
+yarn-error.log
+.env
+.env.backup
+.phpunit.result.cache
+storage/*.key
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
+
+# Go / Bot
+bot/bin/
+bot/vendor/
+bot/data/       # Very Important: Don't overwrite the production session with your Termux one!
+*.db
+*.db-shm
+*.db-wal
+
+# Docker & Deployment
+Dockerfile
+.dockerignore
+docker-compose.yml
+.railway
+.huggingface
+
+# OS Specific
+.DS_Store
+Thumbs.db
